@@ -197,16 +197,43 @@ if df.empty:
 if page == "Dashboard":
     st.subheader("📊 Dashboard overview")
     if uploaded_df is None:
-        st.info("These are illustrative demo values, not official agricultural statistics. Upload your actual dataset in the sidebar.")
-        filtered = df[
+    st.info("These are illustrative demo values, not official agricultural statistics. Upload your actual dataset in the sidebar.")
+
+# Set up filters
+chosen_states = st.sidebar.multiselect(
+    "Select States",
+    sorted(df["state"].astype(str).unique()),
+    default=sorted(df["state"].astype(str).unique())
+)
+
+chosen_crops = st.sidebar.multiselect(
+    "Select Crops",
+    sorted(df["crop"].astype(str).unique()),
+    default=sorted(df["crop"].astype(str).unique())
+)
+
+chosen_seasons = st.sidebar.multiselect(
+    "Select Seasons",
+    sorted(df["season"].astype(str).unique()),
+    default=sorted(df["season"].astype(str).unique())
+)
+
+chosen_years = st.sidebar.multiselect(
+    "Select Years",
+    sorted(df["year"].unique()),
+    default=sorted(df["year"].unique())
+)
+
+filtered = df[
     df["state"].astype(str).isin(chosen_states)
     & df["crop"].astype(str).isin(chosen_crops)
     & df["season"].astype(str).isin(chosen_seasons)
     & df["year"].isin(chosen_years)
 ].copy()
-    total_prod = filtered["production"].sum()
-    total_area = filtered["area"].sum()
-    weighted_yield = total_prod / total_area if total_area else 0
+
+total_prod = filtered["production"].sum()
+total_area = filtered["area"].sum()
+weighted_yield = total_prod / total_area if total_area else 0
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total production", f"{total_prod:,.2f}")
     k2.metric("Cultivated area", f"{total_area:,.2f}")

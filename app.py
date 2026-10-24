@@ -198,6 +198,12 @@ if page == "Dashboard":
     st.subheader("📊 Dashboard overview")
     if uploaded_df is None:
         st.info("These are illustrative demo values, not official agricultural statistics. Upload your actual dataset in the sidebar.")
+        filtered = df[
+    df["state"].astype(str).isin(chosen_states)
+    & df["crop"].astype(str).isin(chosen_crops)
+    & df["season"].astype(str).isin(chosen_seasons)
+    & df["year"].isin(chosen_years)
+].copy()
     total_prod = filtered["production"].sum()
     total_area = filtered["area"].sum()
     weighted_yield = total_prod / total_area if total_area else 0

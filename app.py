@@ -1,411 +1,747 @@
+
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
+import io
 import hashlib
-import json
-from pathlib import Path
 
-# ---------------- PAGE SETTINGS ----------------
+# ---------------- PAGE CONFIGURATION ----------------
 st.set_page_config(
-    page_title="Agriculture Crop Production Analysis",
+    page_title="AgriScope | Crop Production Analysis",
     page_icon="🌾",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ---------------- STYLING ----------------
+# ---------------- CUSTOM DESIGN ----------------
 st.markdown("""
 <style>
-.stApp {background: linear-gradient(180deg, #f5fbf4 0%, #ffffff 45%);}
-[data-testid="stSidebar"] {background-color: #eaf4e8;}
-.hero {
-    padding: 1.5rem 1.7rem; border-radius: 18px;
-    background: linear-gradient(120deg, #14532d, #2f855a);
-    color: white; margin-bottom: 1rem;
+.stApp {
+    background-color: #f5f8f2;
 }
-.hero h1 {color: white; margin-bottom: .3rem;}
-.hero p {color: #e7f7e8; font-size: 1.05rem;}
+[data-testid="stSidebar"] {
+    background-color: #e7f0e3;
+}
+.main-title {
+    font-size: 36px;
+    font-weight: 800;
+    color: #245c37;
+}
+.subtitle {
+    color: #657765;
+    font-size: 16px;
+}
 div[data-testid="stMetric"] {
-    background: white; border: 1px solid #dcebd9;
-    padding: 14px; border-radius: 14px;
+    background: white;
+    border: 1px solid #dce8d8;
+    padding: 18px;
+    border-radius: 12px;
 }
-.small-note {color: #536455; font-size: .88rem;}
+div[data-testid="stMetricValue"] {
+    color: #245c37;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- SIMPLE LOCAL ACCOUNT DEMO ----------------
-# Important: this is a classroom/demo login, not secure production authentication.
-ACCOUNTS_FILE = Path("accounts_demo.json")
+# ---------------- DEMONSTRATION DATA ----------------
+def create_demo_data():
+    rows = [
+        ("Andhra Pradesh", "Rice", 2020, "Kharif", 120, 420, 720),
+        ("Andhra Pradesh", "Rice", 2021, "Kharif", 125, 450, 680),
+        ("Andhra Pradesh", "Rice", 2022, "Kharif", 130, 468, 710),
+        ("Telangana", "Rice", 2020, "Kharif", 110, 385, 750),
+        ("Telangana", "Rice", 2021, "Kharif", 115, 414, 790),
+        ("Telangana", "Cotton", 2022, "Kharif", 95, 190, 650),
+        ("Karnataka", "Ragi", 2020, "Kharif", 80, 144, 600),
+        ("Karnataka", "Ragi", 2021, "Kharif", 85, 153, 620),
+        ("Tamil Nadu", "Rice", 2022, "Rabi", 100, 400, 900),
+        ("Maharashtra", "Cotton", 2021, "Kharif", 140, 280, 700),
+        ("Punjab", "Wheat", 2020, "Rabi", 150, 600, 500),
+        ("Punjab", "Wheat", 2021, "Rabi", 155, 635, 520),
+    ]
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "State", "Crop", "Year", "Season",
+            "Area", "Production", "Rainfall"
+        ]
+    )
 
-def load_accounts():
-    if ACCOUNTS_FILE.exists():
-        try:
-            return json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
-
-def save_accounts(accounts):
-    ACCOUNTS_FILE.write_text(json.dumps(accounts), encoding="utf-8")
-
-def hash_password(password):
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
+# ---------------- SESSION STATE ----------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
-if "username" not in st.session_state:
-    st.session_state.username = ""
+
+if "users" not in st.session_state:
+    st.session_state.users = {}
+
 if "page" not in st.session_state:
     st.session_state.page = "Login"
 
-# ---------------- AUTH PAGE ----------------
-if not st.session_state.authenticated:
-    st.markdown("""
-    <div class="hero">
-      <h1>🌾 Agriculture Crop Production Analysis System</h1>
-      <p>Explore crop production, cultivated area, yield and rainfall patterns.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    login_tab, signup_tab = st.tabs(["Login", "Sign up"])
-    with login_tab:
-        st.subheader("Welcome back")
-        with st.form("login_form"):
-            login_user = st.text_input("Username", key="login_user")
-            login_password = st.text_input("Password", type="password", key="login_password")
-            login_submit = st.form_submit_button("Login", use_container_width=True)
-        if login_submit:
-            accounts = load_accounts()
-            saved_hash = accounts.get(login_user.strip())
-            if saved_hash and saved_hash == hash_password(login_password):
-                st.session_state.authenticated = True
-                st.session_state.username = login_user.strip()
-                st.rerun()
-            else:
-                st.error("Login details not found. Please sign up first or check your username and password.")
-    with signup_tab:
-        st.subheader("Create an account")
-        st.info("Demo account storage is temporary on free hosting and is not suitable for private or sensitive information.")
-        with st.form("signup_form"):
-            new_user = st.text_input("Choose a username", key="signup_user")
-            new_password = st.text_input("Choose a password (8+ characters)", type="password", key="signup_password")
-            confirm_password = st.text_input("Confirm password", type="password", key="signup_confirm")
-            signup_submit = st.form_submit_button("Create account", use_container_width=True)
-        if signup_submit:
-            accounts = load_accounts()
-            username = new_user.strip()
-            if len(username) < 3:
-                st.error("Username must contain at least 3 characters.")
-            elif len(new_password) < 8:
-                st.error("Please use a password with at least 8 characters.")
-            elif new_password != confirm_password:
-                st.error("Passwords do not match.")
-            elif username in accounts:
-                st.error("That username already exists. Please choose another.")
-            else:
-                accounts[username] = hash_password(new_password)
-                save_accounts(accounts)
-                st.success("Account created for this demo. Open the Login tab to sign in.")
-    st.caption("Educational project demo. For production use, connect a secure authentication provider.")
-    st.stop()
+# ---------------- LOGIN / SIGNUP ----------------
+def make_hash(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-
-# ---------------- HEADER / SIDEBAR ----------------
-with st.sidebar:
-    st.markdown("## 🌾 Crop Analysis")
-    st.write(f"Signed in as **{st.session_state.username}**")
-    if st.button("Log out", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.username = ""
-        st.rerun()
-    st.divider()
-    page = st.radio(
-        "Navigate",
-        ["Dashboard", "Crop Analysis", "State Comparison", "Rainfall Analysis",
-         "Data Quality", "View / Download Data", "About Project"],
-        label_visibility="visible"
+def authentication_page():
+    st.markdown(
+        '<div class="main-title">🌾 AgriScope</div>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<div class="subtitle">Agriculture Crop Production Analysis System</div>',
+        unsafe_allow_html=True
     )
     st.divider()
-    st.markdown("### Upload dataset")
-    uploaded_file = st.file_uploader(
-        "CSV or Excel file", type=["csv", "xlsx", "xls"],
-        help="Upload your real agriculture dataset here."
-    )
 
-# ---------------- DATA LOADING / NORMALIZATION ----------------
-def read_uploaded_file(file):
-    if file is None:
-        return None
-    try:
-        if file.name.lower().endswith(".csv"):
-            return pd.read_csv(file)
-        return pd.read_excel(file)
-    except Exception as exc:
-        st.error(f"Could not read the file: {exc}")
-        return None
+    left, right = st.columns([1, 1.2])
 
-def normalize_columns(frame):
-    df = frame.copy()
-    df.columns = [str(c).strip().lower().replace("-", "_") for c in df.columns]
-    aliases = {
-        "state/region": "state", "state_region": "state", "region": "state",
-        "state_name": "state", "crop name": "crop", "crop_name": "crop",
-        "crop type": "crop", "crop_type": "crop",
-        "year": "year", "season_name": "season",
-        "area cultivated": "area", "area_cultivated": "area",
-        "area cultivated (ha)": "area", "area_ha": "area",
-        "cultivated_area": "area", "area (hectares)": "area",
-        "production (tonnes)": "production", "crop_production": "production",
-        "production_tonnes": "production", "production (tons)": "production",
-        "yield_per_hectare": "yield", "crop_yield": "yield",
-        "rainfall (mm)": "rainfall", "rainfall_mm": "rainfall",
-        "annual_rainfall": "rainfall", "precipitation": "rainfall",
-
-        "rainfall (millimeters)": "rainfall"
-    }
-    df = df.rename(columns={c: aliases[c] for c in df.columns if c in aliases})
-    return df
-
-uploaded_df = read_uploaded_file(uploaded_file)
-if uploaded_df is not None:
-    df = normalize_columns(uploaded_df)
-    st.sidebar.success("Uploaded dataset loaded.")
-else:
-    # Clearly labelled demonstration data only
-    rows = []
-    states = ["Andhra Pradesh", "Telangana", "Karnataka", "Tamil Nadu"]
-    crops = ["Rice", "Maize", "Cotton", "Groundnut"]
-    seasons = ["Kharif", "Rabi"]
-    for si, state in enumerate(states):
-        for ci, crop in enumerate(crops):
-            for year in range(2020, 2026):
-                area = 800 + si * 150 + ci * 110 + (year - 2020) * 20
-                production = area * (2.1 + ci * 0.28 + si * 0.1 + (year - 2020) * 0.025)
-                rows.append({
-                    "state": state, "crop": crop, "year": year,
-                    "area": area, "production": round(production, 2),
-                    "yield": round(production / area, 2),
-                    "season": seasons[(year + ci) % 2]
-                })
-    df = pd.DataFrame(rows)
-    st.sidebar.warning("Demo data in use")
-
-if df.empty:
-    st.error("The dataset has no rows.")
-    st.stop()
-
-# ---------------- PAGES ----------------
-if page == "Dashboard":
-    st.subheader("📊 Dashboard overview")
-if uploaded_df is None:
-  st.info("These are illustrative demo values, not official agricultural statistics. Upload your actual dataset in the sidebar.")
-
-  # Set up filters
-   chosen_states = st.sidebar.multiselect(
-     "Select States",
-      sorted(df["state"].astype(str).unique()),
-      default=sorted(df["state"].astype(str).unique())
-   )
-
-   chosen_crops = st.sidebar.multiselect(
-      "Select Crops",
-       sorted(df["crop"].astype(str).unique()),
-       default=sorted(df["crop"].astype(str).unique())
-)
-
-   chosen_seasons = st.sidebar.multiselect(
-     "Select Seasons",
-      sorted(df["season"].astype(str).unique()),
-      default=sorted(df["season"].astype(str).unique())
-)
-
-   chosen_years = st.sidebar.multiselect(
-     "Select Years",
-      sorted(df["year"].unique()),
-      default=sorted(df["year"].unique())
-)
-
-filtered = df[
-    df["state"].astype(str).isin(chosen_states)
-    & df["crop"].astype(str).isin(chosen_crops)
-    & df["season"].astype(str).isin(chosen_seasons)
-    & df["year"].isin(chosen_years)
-].copy()
-
-total_prod = filtered["production"].sum()
-total_area = filtered["area"].sum()
-weighted_yield = total_prod / total_area if total_area else 0
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total production", f"{total_prod:,.2f}")
-    k2.metric("Cultivated area", f"{total_area:,.2f}")
-    k3.metric("Overall yield", f"{weighted_yield:,.2f}")
-    k4.metric("Crop types", f"{filtered['crop'].nunique():,}")
-
-    left, right = st.columns(2)
     with left:
-        trend = filtered.groupby("year", as_index=False)["production"].sum()
-        st.plotly_chart(px.line(trend, x="year", y="production", markers=True,
-                                title="Yearly production trend"), use_container_width=True)
+        st.image(
+            "https://images.unsplash.com/photo-1500382017468-9049fed747ef"
+            "?auto=format&fit=crop&w=1000&q=80",
+            use_container_width=True
+        )
+        st.subheader("Understand agriculture through data")
+        st.write(
+            "Explore crop production, cultivated area, yield, "
+            "rainfall, and agricultural trends using data analysis."
+        )
+
     with right:
-        crop_sum = filtered.groupby("crop", as_index=False)["production"].sum().sort_values("production", ascending=False)
-        st.plotly_chart(px.bar(crop_sum, x="crop", y="production", color="crop",
-                               title="Production by crop"), use_container_width=True)
-    left2, right2 = st.columns(2)
-    with left2:
-        state_sum = filtered.groupby("state", as_index=False)["production"].sum().sort_values("production", ascending=False)
-        st.plotly_chart(px.bar(state_sum, x="state", y="production", title="Production by state"),
-                        use_container_width=True)
-    with right2:
-        season_sum = filtered.groupby("season", as_index=False)["production"].sum()
-        st.plotly_chart(px.pie(season_sum, names="season", values="production",
-                               title="Production share by season", hole=0.35), use_container_width=True)
-    st.caption("Metric units depend on the units used in your uploaded dataset.")
+        login_tab, signup_tab = st.tabs(["🔐 Login", "📝 Sign Up"])
 
-elif page == "Crop Analysis":
-    st.subheader("🌾 Crop analysis")
-    selected_crop = st.selectbox("Choose a crop", sorted(filtered["crop"].astype(str).unique()))
-    crop_df = filtered[filtered["crop"].astype(str) == selected_crop]
-    a, b = st.columns(2)
-    with a:
-        by_year = crop_df.groupby("year", as_index=False)["production"].sum()
-        st.plotly_chart(px.line(by_year, x="year", y="production", markers=True,
-                                title=f"{selected_crop}: production by year"), use_container_width=True)
-    with b:
-        by_state = crop_df.groupby("state", as_index=False)["production"].sum().sort_values("production", ascending=False)
-        st.plotly_chart(px.bar(by_state, x="state", y="production",
-                               title=f"{selected_crop}: production by state"), use_container_width=True)
-    c, d = st.columns(2)
-    with c:
-        area_year = crop_df.groupby("year", as_index=False)["area"].sum()
-        st.plotly_chart(px.area(area_year, x="year", y="area", title="Cultivated area over time"),
-                        use_container_width=True)
-    with d:
-        yield_df = crop_df.dropna(subset=["yield"])
-        if not yield_df.empty:
-            st.plotly_chart(px.scatter(yield_df, x="area", y="production", color="state",
-                                       hover_data=["year"], title="Area vs production"),
-                            use_container_width=True)
-        else:
-            st.info("Yield/area comparison is unavailable for this dataset.")
+        with login_tab:
+            st.subheader("Welcome back")
+            with st.form("login_form"):
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+                login_button = st.form_submit_button(
+                    "Login", use_container_width=True
+                )
 
-elif page == "State Comparison":
-    st.subheader("🗺️ State comparison")
-    state_summary = filtered.groupby("state", as_index=False).agg(
-        production=("production", "sum"), area=("area", "sum"), crop_count=("crop", "nunique")
-    )
-    state_summary["overall_yield"] = state_summary["production"] / state_summary["area"].replace(0, pd.NA)
-    st.dataframe(state_summary.sort_values("production", ascending=False), use_container_width=True)
-    st.plotly_chart(px.bar(state_summary.sort_values("production", ascending=False),
-                           x="state", y="production", color="state",
-                           title="Total production comparison"), use_container_width=True)
-    st.plotly_chart(px.bar(state_summary.sort_values("overall_yield", ascending=False),
-                           x="state", y="overall_yield",
-                           title="Overall yield comparison"), use_container_width=True)
+            if login_button:
+                saved = st.session_state.users.get(username)
+                if saved and saved == make_hash(password):
+                    st.session_state.authenticated = True
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error(
+                        "Invalid username or password. "
+                        "Please sign up first or check your details."
+                    )
 
-elif page == "Rainfall Analysis":
-    st.subheader("🌧️ Rainfall analysis")
-    if "rainfall" not in filtered.columns or filtered["rainfall"].notna().sum() == 0:
-        st.warning("Rainfall data is not available. Upload a dataset with a numeric `rainfall` column (for example, rainfall in millimetres) to enable this analysis.")
-        st.markdown("Suggested columns: `state`, `crop`, `year`, `area`, `production`, `rainfall`.")
-    else:
-        rain = filtered.dropna(subset=["rainfall"])
-        left, right = st.columns(2)
-        with left:
-            rain_year = rain.groupby("year", as_index=False).agg(
-                rainfall=("rainfall", "mean"), production=("production", "sum")
+            st.caption(
+                "Demo only: accounts are stored temporarily in the "
+                "current Streamlit session."
             )
-            st.plotly_chart(px.line(rain_year, x="year", y="rainfall", markers=True,
-                                    title="Average rainfall by year"), use_container_width=True)
-        with right:
-            st.plotly_chart(px.scatter(rain, x="rainfall", y="production", color="state",
-                                       hover_data=["crop", "year"],
-                                       title="Rainfall vs production"), use_container_width=True)
-        corr_data = rain[["rainfall", "production"]].dropna()
-        if len(corr_data) >= 2 and corr_data["rainfall"].nunique() > 1 and corr_data["production"].nunique() > 1:
-            corr = corr_data["rainfall"].corr(corr_data["production"])
-            st.metric("Correlation (rainfall and production)", f"{corr:.2f}")
-            st.caption("Correlation shows association, not proof that rainfall caused production changes.")
-        else:
-            st.info("There are not enough different rainfall and production values to calculate correlation.")
 
-elif page == "Data Quality":
-    st.subheader("🧹 Data quality checks")
-    q1, q2, q3 = st.columns(3)
-    q1.metric("Rows", f"{len(df):,}")
-    q2.metric("Duplicate rows", f"{int(df.duplicated().sum()):,}")
-    q3.metric("Missing cells", f"{int(df.isna().sum().sum()):,}")
-    missing_table = pd.DataFrame({
-        "Column": df.columns,
-        "Missing values": [int(df[c].isna().sum()) for c in df.columns],
-        "Data type": [str(df[c].dtype) for c in df.columns]
-    })
-    st.dataframe(missing_table, use_container_width=True)
-    st.write("Preview of duplicate rows")
-    duplicates = df[df.duplicated(keep=False)]
-    if duplicates.empty:
-        st.success("No duplicate rows found.")
+        with signup_tab:
+            st.subheader("Create an account")
+            with st.form("signup_form"):
+                new_username = st.text_input("Choose a username")
+                new_password = st.text_input(
+                    "Choose a password", type="password"
+                )
+                confirm_password = st.text_input(
+                    "Confirm password", type="password"
+                )
+                signup_button = st.form_submit_button(
+                    "Create Account", use_container_width=True
+                )
+
+            if signup_button:
+                if not new_username.strip() or not new_password:
+                    st.error("Please enter a username and password.")
+                elif new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                elif new_username in st.session_state.users:
+                    st.error("That username already exists.")
+                else:
+                    st.session_state.users[new_username] = make_hash(
+                        new_password
+                    )
+                    st.success("Account created. You can now log in.")
+
+# ---------------- DATA HELPERS ----------------
+def read_uploaded_file(uploaded_file):
+    if uploaded_file.name.lower().endswith(".csv"):
+        return pd.read_csv(uploaded_file)
+    return pd.read_excel(uploaded_file)
+
+def find_column(columns, keywords):
+    for col in columns:
+        normalized = str(col).strip().lower().replace("_", " ")
+        if normalized in keywords:
+            return col
+    for col in columns:
+        normalized = str(col).strip().lower().replace("_", " ")
+        if any(word in normalized for word in keywords):
+            return col
+    return None
+
+def number_series(series):
+    cleaned = (
+        series.astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("%", "", regex=False)
+        .str.strip()
+    )
+    return pd.to_numeric(cleaned, errors="coerce")
+
+def safe_sum(series):
+    return float(series.sum()) if series.notna().any() else 0.0
+
+def display_number(value):
+    return f"{value:,.2f}"
+
+# ---------------- MAIN DASHBOARD ----------------
+def dashboard():
+    st.markdown(
+        '<div class="main-title">🌾 AgriScope Dashboard</div>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        '<div class="subtitle">Agriculture Crop Production Analysis System</div>',
+        unsafe_allow_html=True
+    )
+
+    st.sidebar.title("🌿 Navigation")
+    st.sidebar.write(
+        f"Welcome, **{st.session_state.get('username', 'User')}**"
+    )
+
+    page = st.sidebar.radio(
+        "Go to",
+        [
+            "Dashboard",
+            "Crop Analysis",
+            "Trends & Rainfall",
+            "Data Explorer",
+            "Project Information"
+        ]
+    )
+
+    if st.sidebar.button("Logout", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
+
+    st.sidebar.divider()
+    st.sidebar.subheader("📂 Upload Dataset")
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload CSV or Excel",
+        type=["csv", "xlsx"]
+    )
+
+    if uploaded_file is not None:
+        try:
+            raw_df = read_uploaded_file(uploaded_file)
+            source_label = "Uploaded dataset"
+        except Exception as error:
+            st.error(f"Could not read the uploaded file: {error}")
+            return
     else:
-        st.dataframe(duplicates, use_container_width=True)
-    st.caption("This page reports data issues; it does not silently delete rows from your original file.")
+        raw_df = create_demo_data()
+        source_label = "Illustrative demonstration data"
+        st.info(
+            "You are viewing illustrative demo values, not official "
+            "agricultural statistics. Upload your own dataset in the "
+            "sidebar to analyze your actual data."
+        )
 
-elif page == "View / Download Data":
-    st.subheader("📥 View and download filtered data")
-    st.write(f"Showing {len(filtered):,} rows after applying filters.")
-    st.dataframe(filtered, use_container_width=True)
-    csv_bytes = filtered.to_csv(index=False).encode("utf-8")
-    st.download_button("Download filtered CSV", csv_bytes,
-                       file_name="filtered_agriculture_data.csv", mime="text/csv")
-    try:
-        import io
+    if raw_df.empty:
+        st.error("The dataset has no rows.")
+        return
+
+    st.caption(f"Data source: {source_label}")
+
+    # ---------------- COLUMN MAPPING ----------------
+    st.sidebar.subheader("🧩 Map Dataset Columns")
+    columns = list(raw_df.columns)
+
+    crop_guess = find_column(columns, ["crop", "crop name", "commodity"])
+    state_guess = find_column(columns, ["state", "region", "district"])
+    year_guess = find_column(columns, ["year", "crop year"])
+    season_guess = find_column(columns, ["season"])
+    area_guess = find_column(columns, ["area", "area cultivated", "cultivated area"])
+    production_guess = find_column(columns, ["production", "produce", "output"])
+    yield_guess = find_column(columns, ["yield", "productivity"])
+    rainfall_guess = find_column(columns, ["rainfall", "rain", "precipitation"])
+
+    def choose_column(label, guess, required=False):
+        options = ["-- Not available --"] + columns
+        default_index = options.index(guess) if guess in columns else 0
+        choice = st.sidebar.selectbox(
+            label,
+            options,
+            index=default_index,
+            key=f"mapping_{label}"
+        )
+        if choice == "-- Not available --":
+            return None
+        return choice
+
+    crop_col = choose_column("Crop name column", crop_guess, True)
+    state_col = choose_column("State / Region column", state_guess)
+    year_col = choose_column("Year column", year_guess)
+    season_col = choose_column("Season column", season_guess)
+    area_col = choose_column("Cultivated area column", area_guess, True)
+    production_col = choose_column(
+        "Production column", production_guess, True
+    )
+    yield_col = choose_column("Yield column", yield_guess)
+    rainfall_col = choose_column("Rainfall column", rainfall_guess)
+
+    if crop_col is None or area_col is None or production_col is None:
+        st.error(
+            "Please map the crop, cultivated area, and production columns "
+            "using the sidebar. These three columns are required."
+        )
+        return
+
+    # ---------------- CLEAN AND STANDARDIZE ----------------
+    df = pd.DataFrame(index=raw_df.index)
+    df["Crop"] = raw_df[crop_col].astype("string").str.strip()
+    df["Area"] = number_series(raw_df[area_col])
+    df["Production"] = number_series(raw_df[production_col])
+
+    if state_col:
+        df["State"] = raw_df[state_col].astype("string").str.strip()
+    else:
+        df["State"] = "Not specified"
+
+    if year_col:
+        df["Year"] = number_series(raw_df[year_col])
+    else:
+        df["Year"] = np.nan
+
+    if season_col:
+        df["Season"] = raw_df[season_col].astype("string").str.strip()
+    else:
+        df["Season"] = "Not specified"
+
+    if yield_col:
+        df["Yield"] = number_series(raw_df[yield_col])
+    else:
+        df["Yield"] = np.where(
+            df["Area"] > 0,
+            df["Production"] / df["Area"],
+            np.nan
+        )
+
+    if rainfall_col:
+        df["Rainfall"] = number_series(raw_df[rainfall_col])
+
+    df = df.replace([np.inf, -np.inf], np.nan)
+    missing_before = int(df.isna().sum().sum())
+    duplicates_before = int(df.duplicated().sum())
+
+    df = df.dropna(subset=["Crop", "Area", "Production"])
+    df = df[df["Crop"].str.len() > 0]
+    df = df[(df["Area"] >= 0) & (df["Production"] >= 0)]
+    df = df.drop_duplicates().reset_index(drop=True)
+
+    if df.empty:
+        st.error(
+            "No valid rows remain after cleaning. Check the selected "
+            "columns and numeric values in your dataset."
+        )
+        return
+
+    # ---------------- FILTERS ----------------
+    st.sidebar.subheader("🔎 Filter Data")
+
+    state_options = sorted(df["State"].dropna().astype(str).unique())
+    crop_options = sorted(df["Crop"].dropna().astype(str).unique())
+    season_options = sorted(df["Season"].dropna().astype(str).unique())
+
+    selected_states = st.sidebar.multiselect(
+        "Select states / regions",
+        state_options,
+        default=state_options
+    )
+    selected_crops = st.sidebar.multiselect(
+        "Select crops",
+        crop_options,
+        default=crop_options
+    )
+    selected_seasons = st.sidebar.multiselect(
+        "Select seasons",
+        season_options,
+        default=season_options
+    )
+
+    filtered = df[
+        df["State"].astype(str).isin(selected_states)
+        & df["Crop"].astype(str).isin(selected_crops)
+        & df["Season"].astype(str).isin(selected_seasons)
+    ].copy()
+
+    if df["Year"].notna().any():
+        available_years = sorted(
+            df["Year"].dropna().astype(int).unique().tolist()
+        )
+        selected_years = st.sidebar.multiselect(
+            "Select years",
+            available_years,
+            default=available_years
+        )
+        filtered = filtered[
+            filtered["Year"].isin(selected_years)
+        ]
+
+    if filtered.empty:
+        st.warning("No records match your filters. Select more options.")
+        return
+
+    # ---------------- DASHBOARD SUMMARY ----------------
+    if page == "Dashboard":
+        st.subheader("📊 Key Performance Indicators")
+
+        total_production = safe_sum(filtered["Production"])
+        total_area = safe_sum(filtered["Area"])
+        average_yield = filtered["Yield"].mean()
+        number_crops = filtered["Crop"].nunique()
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Production", display_number(total_production))
+        c2.metric("Total Cultivated Area", display_number(total_area))
+        c3.metric(
+            "Average Yield",
+            display_number(average_yield)
+            if pd.notna(average_yield) else "N/A"
+        )
+        c4.metric("Number of Crops", f"{number_crops:,}")
+
+        st.divider()
+        left, right = st.columns(2)
+
+        production_by_crop = (
+            filtered.groupby("Crop", as_index=False)["Production"]
+            .sum()
+            .sort_values("Production", ascending=False)
+        )
+        with left:
+            st.subheader("Production by Crop")
+            fig = px.bar(
+                production_by_crop,
+                x="Crop",
+                y="Production",
+                color="Crop",
+                title="Total Production by Crop"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        production_by_state = (
+            filtered.groupby("State", as_index=False)["Production"]
+            .sum()
+            .sort_values("Production", ascending=False)
+        )
+        with right:
+            st.subheader("State-wise Production Share")
+            fig = px.pie(
+                production_by_state,
+                names="State",
+                values="Production",
+                hole=0.4,
+                title="Production Distribution by State"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("📈 Area vs Production")
+        fig = px.scatter(
+            filtered,
+            x="Area",
+            y="Production",
+            color="Crop",
+            hover_data=["State", "Season"],
+            title="Cultivated Area Compared with Production"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Latest Records")
+        st.dataframe(filtered.head(10), use_container_width=True)
+
+    # ---------------- CROP ANALYSIS ----------------
+    elif page == "Crop Analysis":
+        st.header("🌱 Crop Analysis")
+
+        left, right = st.columns(2)
+
+        crop_production = (
+            filtered.groupby("Crop", as_index=False)["Production"]
+            .sum()
+            .sort_values("Production", ascending=False)
+        )
+        with left:
+            st.subheader("Production Comparison")
+            fig = px.bar(
+                crop_production,
+                x="Production",
+                y="Crop",
+                orientation="h",
+                color="Production",
+                title="Crops Ranked by Production"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with right:
+            st.subheader("Cultivated Area by Crop")
+            area_data = (
+                filtered.groupby("Crop", as_index=False)["Area"].sum()
+            )
+            fig = px.pie(
+                area_data,
+                names="Crop",
+                values="Area",
+                title="Area Distribution"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Yield Comparison")
+        yield_data = (
+            filtered.groupby("Crop", as_index=False)["Yield"]
+            .mean()
+            .dropna()
+        )
+        if not yield_data.empty:
+            fig = px.bar(
+                yield_data,
+                x="Crop",
+                y="Yield",
+                color="Crop",
+                title="Average Yield by Crop"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Yield data is not available for this selection.")
+
+        st.subheader("Production Statistics")
+        st.dataframe(
+            filtered.groupby("Crop")[
+                ["Area", "Production", "Yield"]
+            ].agg(["count", "mean", "min", "max"]).round(2),
+            use_container_width=True
+        )
+
+    # ---------------- TRENDS AND RAINFALL ----------------
+    elif page == "Trends & Rainfall":
+        st.header("🌦️ Production Trends and Rainfall")
+
+        if filtered["Year"].notna().any():
+            yearly = (
+                filtered.dropna(subset=["Year"])
+                .groupby("Year", as_index=False)
+                .agg(
+                    Production=("Production", "sum"),
+                    Area=("Area", "sum"),
+                    Yield=("Yield", "mean")
+                )
+                .sort_values("Year")
+            )
+
+            st.subheader("Production Trend Over the Years")
+            fig = px.line(
+                yearly,
+                x="Year",
+                y="Production",
+                markers=True,
+                title="Year-wise Total Crop Production"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("Cultivated Area Trend")
+                fig = px.area(
+                    yearly,
+                    x="Year",
+                    y="Area",
+                    title="Cultivated Area Over Time"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                st.subheader("Yield Trend")
+                fig = px.line(
+                    yearly,
+                    x="Year",
+                    y="Yield",
+                    markers=True,
+                    title="Average Yield Over Time"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info(
+                "No year column is available. Map your dataset's year "
+                "column in the sidebar to view trends."
+            )
+
+        if "Rainfall" in filtered.columns:
+            rainfall_data = filtered.dropna(subset=["Rainfall"])
+            if not rainfall_data.empty:
+                st.subheader("Rainfall Analysis")
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    fig = px.scatter(
+                        rainfall_data,
+                        x="Rainfall",
+                        y="Production",
+                        color="Crop",
+                        title="Rainfall vs Production"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                with col2:
+                    fig = px.bar(
+                        rainfall_data.groupby(
+                            "State", as_index=False
+                        )["Rainfall"].mean(),
+                        x="State",
+                        y="Rainfall",
+                        title="Average Rainfall by State"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Rainfall values are missing in the selected data.")
+        else:
+            st.info(
+                "Rainfall analysis requires a numeric rainfall column. "
+                "Map one in the sidebar to enable these charts."
+            )
+
+    # ---------------- DATA EXPLORER ----------------
+    elif page == "Data Explorer":
+        st.header("🔍 Data Explorer")
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Rows after cleaning", f"{len(filtered):,}")
+        c2.metric("Missing values before cleaning", f"{missing_before:,}")
+        c3.metric("Duplicate rows before cleaning", f"{duplicates_before:,}")
+
+        st.subheader("Filtered Dataset")
+        st.dataframe(filtered, use_container_width=True)
+
+        st.subheader("Descriptive Statistics")
+        numeric_data = filtered.select_dtypes(include="number")
+        if not numeric_data.empty:
+            st.dataframe(
+                numeric_data.describe().round(2),
+                use_container_width=True
+            )
+
+            st.subheader("Distribution of Values")
+            numeric_column = st.selectbox(
+                "Choose a numeric column",
+                numeric_data.columns.tolist()
+            )
+            fig = px.histogram(
+                filtered,
+                x=numeric_column,
+                nbins=20,
+                title=f"Distribution of {numeric_column}"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            if len(numeric_data.columns) >= 2:
+                st.subheader("Correlation Heatmap")
+                correlation = numeric_data.corr()
+                fig = px.imshow(
+                    correlation,
+                    text_auto=True,
+                    aspect="auto",
+                    color_continuous_scale="RdYlGn",
+                    title="Correlation Between Numeric Variables"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        csv_bytes = filtered.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Download Filtered Dataset (CSV)",
+            data=csv_bytes,
+            file_name="agriculture_analysis.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
         excel_buffer = io.BytesIO()
         with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-            filtered.to_excel(writer, index=False, sheet_name="Filtered Data")
-        st.download_button("Download filtered Excel", excel_buffer.getvalue(),
-                           file_name="filtered_agriculture_data.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    except Exception:
-        st.caption("Excel export needs openpyxl; CSV export is available.")
+            filtered.to_excel(
+                writer, index=False, sheet_name="Analysis"
+            )
 
-elif page == "About Project":
-    st.subheader("📘 About the project")
-    st.markdown("""
-    **Abstract**
+        st.download_button(
+            "⬇️ Download Filtered Dataset (Excel)",
+            data=excel_buffer.getvalue(),
+            file_name="agriculture_analysis.xlsx",
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            use_container_width=True
+        )
 
-    The Agriculture Crop Production Analysis System is a data-analysis website
-    designed to explore agricultural production, cultivated area, crop yield,
-    and seasonal trends. Users can upload a CSV or Excel dataset, filter records
-    by state, crop, season and year, and view interactive charts and summary
-    statistics. If rainfall measurements are included, the system also displays
-    rainfall trends and rainfall-production relationships. The system supports
-    data quality checks and allows filtered results to be downloaded for further
-    study. Findings depend on the quality, coverage and units of the uploaded data.
+    # ---------------- PROJECT INFORMATION ----------------
+    elif page == "Project Information":
+        st.header("📘 About the Project")
 
-    **Objectives**
-    - Analyze crop production and cultivated area across states and years.
-    - Compare crops, seasons and state-level results.
-    - Visualize trends using interactive charts.
-    - Check missing values and duplicate records.
-    - Explore rainfall alongside production when rainfall data is available.
-    - Export filtered data for reports and further analysis.
+        st.subheader("Abstract")
+        st.write(
+            "The Agriculture Crop Production Analysis System is a "
+            "data analysis website developed to study crop production, "
+            "cultivated area, yield, and agricultural trends. It uses "
+            "Python, Pandas, NumPy, and Plotly to clean agricultural "
+            "data, calculate summary statistics, and display interactive "
+            "visualizations that help users understand crop performance."
+        )
 
-    **Methodology**
+        st.subheader("Problem Statement")
+        st.write(
+            "Agricultural data can be difficult to compare when it is "
+            "stored in large tables. This system organizes and visualizes "
+            "crop data to make comparisons easier."
+        )
 
-    Data Collection → Data Upload → Column Validation → Data Cleaning Checks →
-    Filtering → Statistical Analysis → Visualization → Interpretation → Export
+        st.subheader("Objectives")
+        st.markdown("""
+        - Analyze crop production and cultivated area.
+        - Compare crops and states or regions.
+        - Explore yield and year-wise trends.
+        - Study rainfall when rainfall data is provided.
+        - Clean missing, duplicate, and inconsistent records.
+        - Present results through charts, statistics, and downloads.
+        """)
 
-    **Tools and technologies**
-    - Python
-    - Streamlit
-    - Pandas
-    - Plotly
-    - CSV / Excel datasets
+        st.subheader("Methodology")
+        st.markdown("""
+        1. Upload or load the dataset.
+        2. Map the required dataset columns.
+        3. Clean and preprocess the data.
+        4. Apply state, crop, season, and year filters.
+        5. Calculate descriptive statistics.
+        6. Generate charts and interpret the results.
+        7. Download the filtered analysis.
+        """)
 
-    **Scope and limitation**
+        st.subheader("Tools and Technologies")
+        st.markdown("""
+        - **Language:** Python
+        - **Web framework:** Streamlit
+        - **Data analysis:** Pandas and NumPy
+        - **Visualization:** Plotly
+        - **Dataset formats:** CSV and Excel
+        """)
 
-    This is a descriptive data-analysis project, not a machine-learning prediction
-    system. Demo data is illustrative only. Use a reliable official dataset and
-    document its source, date range and measurement units in your final report.
-    """)
-    st.markdown("**Dataset columns:** `state`, `crop`, `year`, `area`, `production`; optional: `yield`, `season`, `rainfall`.")
+        st.subheader("Dataset Information")
+        st.write(
+            "Expected fields include crop name, cultivated area, "
+            "production, and optional state, year, season, yield, "
+            "and rainfall. Actual results depend on the uploaded dataset."
+        )
 
-st.divider()
-st.caption("Agriculture Crop Production Analysis System • Student project • Validate dataset sources and units before reporting results.")
+# ---------------- APPLICATION ENTRY POINT ----------------
+if not st.session_state.authenticated:
+    authentication_page()
+else:
+    dashboard()
